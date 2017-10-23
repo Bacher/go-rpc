@@ -6,6 +6,7 @@ import (
 	"log"
 	"rpc/protocol"
 	"rpc/rpc"
+	"time"
 )
 
 func main() {
@@ -29,5 +30,6 @@ func main() {
 }
 
 func method1(params1 pb.Params1) *pb.Result1 {
+	time.Sleep(1 * time.Second)
 	return &pb.Result1{fmt.Sprintf("Gay %d", params1.A)}
 }

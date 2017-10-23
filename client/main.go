@@ -18,15 +18,19 @@ func main() {
 
 	defer client.Close()
 
-	time.Sleep(10 * time.Minute)
+	for i := 0; i < 10; i++ {
+		go func() {
+			log.Println("Request!")
 
-	res, err := client.Request("kek", &pb.Params1{uint32(3), uint32(5)})
+			res, err := client.Request("kek", &pb.Params1{uint32(3), uint32(5)})
 
-	if err != nil {
-		log.Println("[TEST] Request failed!", err)
-	} else {
-		log.Println("[TEST] Result:", string(res))
+			if err != nil {
+				log.Println("[TEST] Request failed!", err)
+			} else {
+				log.Println("[TEST] Result:", string(res))
+			}
+		}()
 	}
 
-	time.Sleep(10 * time.Minute)
+	time.Sleep(10 * time.Second)
 }

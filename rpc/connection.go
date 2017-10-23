@@ -34,6 +34,7 @@ func NewConnection(requestHandler RequestHandler) *Connection {
 		make(map[uint32]chan *waitResponse),
 		0,
 		&sync.Mutex{},
+		&sync.RWMutex{},
 		false,
 		false,
 		false,
@@ -52,6 +53,7 @@ type Connection struct {
 	wait           map[uint32]chan *waitResponse
 	lastId         uint32
 	idMutex        *sync.Mutex
+	waitMutex      *sync.RWMutex
 	connected      bool
 	closing        bool
 	closed         bool
@@ -123,16 +125,20 @@ func (c *Connection) handle() {
 		case pb.TYPE_PING:
 			break
 		case pb.TYPE_REQUEST:
-			c.response(msg.Id, msg.GetRequest())
+			go c.response(msg.Id, msg.GetRequest())
 			break
 		case pb.TYPE_RESPONSE:
-			c.handleResponse(&msg, msg.GetResponse())
+			go c.handleResponse(&msg, msg.GetResponse())
 		}
 	}
 }
 
 func (c *Connection) Close() {
-	if len(c.wait) == 0 {
+	c.waitMutex.RLock()
+	count := len(c.wait)
+	c.waitMutex.RUnlock()
+
+	if count == 0 {
 		c.close()
 	} else {
 		c.closing = true
@@ -151,11 +157,12 @@ func (c *Connection) close() {
 
 		c.closed = true
 
+		c.waitMutex.Lock()
 		for _, ch := range c.wait {
 			ch <- &waitResponse{Closed, nil}
 		}
-
 		c.wait = nil
+		c.waitMutex.Unlock()
 
 		c.con.Close()
 		c.con = nil
@@ -188,7 +195,9 @@ func (c *Connection) Request(apiName string, params proto.Message) ([]byte, erro
 	}
 
 	waitCh := make(chan *waitResponse)
+	c.waitMutex.Lock()
 	c.wait[id] = waitCh
+	c.waitMutex.Unlock()
 
 	c.writeBuffer(msgBuffer)
 
@@ -196,7 +205,9 @@ func (c *Connection) Request(apiName string, params proto.Message) ([]byte, erro
 
 	select {
 	case <-requestTimeout.C:
+		c.waitMutex.Lock()
 		delete(c.wait, id)
+		c.waitMutex.Unlock()
 		return nil, ResponseTimeout
 	case response := <-waitCh:
 		requestTimeout.Stop()
@@ -290,13 +301,16 @@ func (c *Connection) writeBuffer(msgBuffer []byte) {
 }
 
 func (c *Connection) handleResponse(msg *pb.Message, response *pb.Response) {
+	c.waitMutex.Lock()
 	waitCh, ok := c.wait[response.For]
 
 	if !ok {
+		c.waitMutex.Unlock()
 		return
 	}
 
 	delete(c.wait, response.For)
+	c.waitMutex.Unlock()
 
 	if response.Error {
 		waitCh <- &waitResponse{RemoteError, nil}
@@ -304,8 +318,14 @@ func (c *Connection) handleResponse(msg *pb.Message, response *pb.Response) {
 		waitCh <- &waitResponse{nil, response.Body}
 	}
 
-	if c.closing && len(c.wait) == 0 {
-		c.close()
+	if c.closing {
+		c.waitMutex.RLock()
+		size := len(c.wait)
+		c.waitMutex.RUnlock()
+
+		if size == 0 {
+			c.close()
+		}
 	}
 }
 
