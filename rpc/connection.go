@@ -40,6 +40,7 @@ func NewConnection(requestHandler RequestHandler) *Connection {
 		false,
 		requestHandler,
 		nil,
+		make(chan []byte),
 	}
 }
 
@@ -59,6 +60,7 @@ type Connection struct {
 	closed         bool
 	requestHandler RequestHandler
 	closeHandler   closeHandler
+	writeCh        chan []byte
 }
 
 func (c *Connection) Connect() error {
@@ -68,16 +70,17 @@ func (c *Connection) Connect() error {
 		return err
 	}
 
-	c.con = con
-	c.connected = true
-
-	go c.handle()
+	c.Link(con)
 
 	return nil
 }
 
 func (c *Connection) Link(con net.Conn) {
 	c.con = con
+	c.connected = true
+
+	go c.startWriteLoop()
+
 	go c.handle()
 }
 
@@ -151,11 +154,12 @@ func (c *Connection) errorClose(err error) {
 
 func (c *Connection) close() {
 	if !c.closed {
+		c.closed = true
+		close(c.writeCh)
+
 		if c.closeHandler != nil {
 			defer c.closeHandler()
 		}
-
-		c.closed = true
 
 		c.waitMutex.Lock()
 		for _, ch := range c.wait {
@@ -262,42 +266,7 @@ func (c *Connection) response(requestId uint32, request *pb.Request) {
 }
 
 func (c *Connection) writeBuffer(msgBuffer []byte) {
-	bodyBufferLen := len(msgBuffer)
-
-	sizeBuffer := make([]byte, 4)
-	binary.BigEndian.PutUint32(sizeBuffer, uint32(bodyBufferLen))
-
-	finalBufferSize := 4 + bodyBufferLen
-	buffer := make([]byte, finalBufferSize)
-
-	copy(buffer, sizeBuffer)
-	copy(buffer[4:], msgBuffer)
-
-	needWriteLen := finalBufferSize
-	allWrittenLen := 0
-	sleepCount := 0
-
-	for {
-		writtenSize, err := c.con.Write(buffer[allWrittenLen:])
-
-		if err != nil {
-			c.errorClose(err)
-		}
-
-		allWrittenLen += writtenSize
-
-		if allWrittenLen == needWriteLen {
-			break
-		}
-
-		if sleepCount == 5 {
-			c.errorClose(WriteTimeout)
-			return
-		}
-
-		sleepCount++
-		time.Sleep(200)
-	}
+	c.writeCh <- msgBuffer
 }
 
 func (c *Connection) handleResponse(msg *pb.Message, response *pb.Response) {
@@ -325,6 +294,47 @@ func (c *Connection) handleResponse(msg *pb.Message, response *pb.Response) {
 
 		if size == 0 {
 			c.close()
+		}
+	}
+}
+
+func (c *Connection) startWriteLoop() {
+	for msgBuffer := range c.writeCh {
+		bodyBufferLen := len(msgBuffer)
+
+		sizeBuffer := make([]byte, 4)
+		binary.BigEndian.PutUint32(sizeBuffer, uint32(bodyBufferLen))
+
+		finalBufferSize := 4 + bodyBufferLen
+		buffer := make([]byte, finalBufferSize)
+
+		copy(buffer, sizeBuffer)
+		copy(buffer[4:], msgBuffer)
+
+		needWriteLen := finalBufferSize
+		allWrittenLen := 0
+		sleepCount := 0
+
+		for {
+			writtenSize, err := c.con.Write(buffer[allWrittenLen:])
+
+			if err != nil {
+				c.errorClose(err)
+			}
+
+			allWrittenLen += writtenSize
+
+			if allWrittenLen == needWriteLen {
+				break
+			}
+
+			if sleepCount == 5 {
+				c.errorClose(WriteTimeout)
+				return
+			}
+
+			sleepCount++
+			time.Sleep(200)
 		}
 	}
 }
