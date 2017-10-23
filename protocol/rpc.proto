@@ -1,0 +1,39 @@
+syntax = "proto3";
+
+package pb;
+
+enum TYPE {
+    PING = 0;
+    REQUEST = 1;
+    RESPONSE = 2;
+}
+
+message Message {
+    uint64 id = 1;
+    TYPE type = 2;
+    oneof body {
+        bool ping = 10;
+        Request request = 11;
+        Response response = 12;
+    }
+}
+
+message Request {
+    string name = 1;
+    bytes params = 2;
+}
+
+message Response {
+    uint64 for = 1;
+    bool error = 2;
+    bytes body = 3;
+}
+
+message Params1 {
+    uint32 a = 1;
+    uint32 b = 2;
+}
+
+message Result1 {
+    string gavno = 1;
+}
