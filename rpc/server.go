@@ -5,12 +5,13 @@ import (
 	"log"
 )
 
-func NewServer() *Server {
-	return &Server{nil}
+func NewServer(requestHandler RequestHandler) *Server {
+	return &Server{nil, requestHandler}
 }
 
 type Server struct {
 	clients []*Client
+	requestHandler RequestHandler
 }
 
 func (s *Server) Listen() {
@@ -28,7 +29,7 @@ func (s *Server) Listen() {
 			break
 		}
 
-		client := NewClient()
+		client := NewClient(s.requestHandler)
 		client.Link(con)
 
 		s.clients = append(s.clients, client)

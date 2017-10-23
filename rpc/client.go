@@ -7,11 +7,11 @@ import (
 	"rpc/protocol"
 	"sync"
 	"log"
-	"io"
 	"time"
 	"errors"
-	"fmt"
 )
+
+type RequestHandler func(string, []byte) ([]byte, error)
 
 type RequestResults struct {
 	err error
@@ -19,25 +19,24 @@ type RequestResults struct {
 }
 
 var WriteTimeout = errors.New("socket write timeout")
+var ResponseTimeout = errors.New("response timeout")
 var ApiNotFound = errors.New("api not found")
 var RemoteError = errors.New("remote error")
+var Closed = errors.New("connection closed")
+var NoHandler = errors.New("has not handler")
 
-func NewClient() *Client {
-	return &Client{nil, make(map[uint64]chan *waitResponse), 0, &sync.Mutex{}, func(apiName string, body []byte) ([]byte, error) {
-		switch apiName {
-		case "kek":
-			var p pb.Params1;
-			err := proto.Unmarshal(body, &p)
-			if err != nil {
-				return nil, err
-			}
-			result := method1(p)
-			return proto.Marshal(result)
-		}
+const REQUEST_TIMEOUT = 10 * time.Second
 
-		log.Printf("Unknown apiMethod for parse %s\n", apiName)
-		return nil, ApiNotFound
-	}}
+func NewClient(requestHandler RequestHandler) *Client {
+	return &Client{
+		nil,
+		make(map[uint64]chan *waitResponse),
+		0,
+		&sync.Mutex{},
+		false,
+		false,
+		false,
+		requestHandler}
 }
 
 type waitResponse struct {
@@ -50,23 +49,25 @@ type Client struct {
 	wait map[uint64]chan *waitResponse
 	lastId uint64
 	idMutex *sync.Mutex
-	handleRequest func(string, []byte) ([]byte, error)
-}
-
-func (c *Client) Serve() {
-
+	connected bool
+	closing bool
+	closed bool
+	requestHandler RequestHandler
 }
 
 func (c *Client) Connect() error {
 	con, err := net.Dial("tcp", "localhost:9999")
 
-	if err == nil {
-		c.con = con
+	if err != nil {
+		return err
 	}
+
+	c.con = con
+	c.connected = true
 
 	go c.handle()
 
-	return err
+	return nil
 }
 
 func (c *Client) Link(con net.Conn) {
@@ -81,11 +82,7 @@ func (c *Client) handle() {
 		_, err := c.con.Read(sizeBuffer)
 
 		if err != nil {
-			if err == io.EOF {
-				log.Println("Connection closed")
-			} else {
-				log.Println("Read failed:", err)
-			}
+			c.errorClose(Closed)
 			return
 		}
 
@@ -99,15 +96,9 @@ func (c *Client) handle() {
 			curReceiveSize, err := c.con.Read(messageBuffer[receiveSize:])
 
 			if err != nil {
-				if err == io.EOF {
-					log.Println("Connection closed")
-				} else {
-					log.Println("Read message failed:", err)
-				}
+				c.errorClose(Closed)
 				return
 			}
-
-			log.Println("Received:", curReceiveSize)
 
 			receiveSize += curReceiveSize
 
@@ -115,8 +106,6 @@ func (c *Client) handle() {
 				break
 			}
 		}
-
-		log.Println("Exit from receive loop")
 
 		var msg pb.Message
 		err = proto.Unmarshal(messageBuffer, &msg)
@@ -139,12 +128,30 @@ func (c *Client) handle() {
 }
 
 func (c *Client) Close() {
-	c.con.Close()
+	if len(c.wait) == 0 {
+		c.close()
+	} else {
+		c.closing = true
+	}
 }
 
 func (c *Client) errorClose(err error) {
-	log.Println("Connection error:", err)
-	c.Close()
+	c.close()
+}
+
+func (c *Client) close() {
+	if !c.closed {
+		c.closed = true
+
+		for _, ch := range c.wait {
+			ch <- &waitResponse{Closed, nil}
+		}
+
+		c.wait = nil
+
+		c.con.Close()
+		c.con = nil
+	}
 }
 
 func (c *Client) getNextMessageId() uint64 {
@@ -157,6 +164,10 @@ func (c *Client) getNextMessageId() uint64 {
 }
 
 func (c *Client) Request(apiName string, params proto.Message) ([]byte, error) {
+	if !c.connected || c.closed || c.closing {
+		return nil, Closed
+	}
+
 	id := c.getNextMessageId()
 
 	paramsBuffer, _ := proto.Marshal(params)
@@ -168,28 +179,51 @@ func (c *Client) Request(apiName string, params proto.Message) ([]byte, error) {
 		return nil, err
 	}
 
-	sizeBuffer := make([]byte, 4)
-	binary.BigEndian.PutUint32(sizeBuffer, uint32(len(msgBuffer)))
-
 	waitCh := make(chan *waitResponse)
 	c.wait[id] = waitCh
 
-	c.con.Write(sizeBuffer)
-	c.con.Write(msgBuffer)
+	c.writeBuffer(msgBuffer)
 
-	response := <-waitCh
+	requestTimeout := time.NewTimer(REQUEST_TIMEOUT)
 
-	if response.err != nil {
-		return nil, response.err
-	} else {
-		return response.data, nil
+	select {
+	case <-requestTimeout.C:
+		delete(c.wait, id)
+		return nil, ResponseTimeout
+	case response := <-waitCh:
+		requestTimeout.Stop()
+
+		if response.err != nil {
+			return nil, response.err
+		} else {
+			return response.data, nil
+		}
 	}
 }
 
 func (c *Client) response(requestId uint64, request *pb.Request) {
-	resultBuffer, err := c.handleRequest(request.Name, request.Params)
+	var err error = nil
+	var resultBuffer []byte = nil
 
-	var response *pb.Response;
+	if c.requestHandler == nil {
+		log.Printf("Try to request \"%s\" on noApi handler server\n", request.Name)
+		err = NoHandler
+
+	} else if c.closing {
+		err = Closed
+
+	} else {
+		startTs := time.Now()
+		resultBuffer, err = c.requestHandler(request.Name, request.Params)
+		elapsed := time.Since(startTs)
+
+		if elapsed > REQUEST_TIMEOUT {
+			log.Printf("[RPC] Request aborted. Too long response for \"%s\" [%ds]\n", request.Name, elapsed / time.Second)
+			return
+		}
+	}
+
+	var response *pb.Response
 
 	if err != nil {
 		response = &pb.Response{requestId, true, nil}
@@ -199,26 +233,28 @@ func (c *Client) response(requestId uint64, request *pb.Request) {
 
 	msg := &pb.Message{c.getNextMessageId(), pb.TYPE_RESPONSE, &pb.Message_Response{response}}
 	bodyBuffer, err := proto.Marshal(msg)
-	bodyBufferLen := len(bodyBuffer)
 
 	if err != nil {
 		c.errorClose(err)
 		return
 	}
 
+	c.writeBuffer(bodyBuffer)
+}
+
+func (c *Client) writeBuffer(msgBuffer []byte) {
+	bodyBufferLen := len(msgBuffer)
+
 	sizeBuffer := make([]byte, 4)
 	binary.BigEndian.PutUint32(sizeBuffer, uint32(bodyBufferLen))
 
-	buffer := make([]byte, 4 + bodyBufferLen)
+	finalBufferSize := 4 + bodyBufferLen;
+	buffer := make([]byte, finalBufferSize)
 
 	copy(buffer, sizeBuffer)
-	copy(buffer[4:], bodyBuffer)
+	copy(buffer[4:], msgBuffer)
 
-	c.writeBuffer(buffer)
-}
-
-func (c *Client) writeBuffer(buffer []byte) {
-	needWriteLen := len(buffer)
+	needWriteLen := finalBufferSize
 	allWrittenLen := 0
 	sleepCount := 0
 
@@ -249,19 +285,20 @@ func (c *Client) handleResponse(msg *pb.Message, response *pb.Response) {
 	waitCh, ok := c.wait[response.For]
 
 	if !ok {
+		// TODO: delete
 		log.Println("Receive response for unknown request", response)
 		return
 	}
 
-	delete (c.wait, response.For)
+	delete(c.wait, response.For)
 
 	if response.Error {
 		waitCh <- &waitResponse{RemoteError, nil}
 	} else {
 		waitCh <- &waitResponse{nil, response.Body}
 	}
-}
 
-func method1(params1 pb.Params1) *pb.Result1 {
-	return &pb.Result1{fmt.Sprintf("Gay %d", params1.A)}
+	if c.closing && len(c.wait) == 0 {
+		c.close()
+	}
 }

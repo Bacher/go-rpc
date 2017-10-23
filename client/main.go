@@ -4,10 +4,11 @@ import (
 	"log"
 	"rpc/rpc"
 	"rpc/protocol"
+	"time"
 )
 
 func main() {
-	client := rpc.NewClient()
+	client := rpc.NewClient(nil)
 
 	err := client.Connect()
 
@@ -20,8 +21,10 @@ func main() {
 	res, err := client.Request("kek", &pb.Params1{uint32(3), uint32(5)})
 
 	if err != nil {
-		log.Fatalln(err)
+		log.Println("[TEST] Request failed!", err)
+	} else {
+		log.Println("[TEST] Result:", string(res))
 	}
 
-	log.Println("Result:", string(res))
+	time.Sleep(10 * time.Minute)
 }
