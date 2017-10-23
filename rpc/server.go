@@ -1,21 +1,22 @@
 package rpc
 
 import (
-	"net"
 	"log"
+	"net"
 )
 
 func NewServer(requestHandler RequestHandler) *Server {
-	return &Server{nil, requestHandler}
+	return &Server{0, make(map[int]*Connection), requestHandler}
 }
 
 type Server struct {
-	clients []*Client
-	requestHandler RequestHandler
+	lastConnectionId int
+	connections      map[int]*Connection
+	requestHandler   RequestHandler
 }
 
 func (s *Server) Listen() {
-	lis, err := net.Listen("tcp","localhost:9999")
+	lis, err := net.Listen("tcp", "localhost:9999")
 
 	if err != nil {
 		log.Fatalln(err)
@@ -29,9 +30,15 @@ func (s *Server) Listen() {
 			break
 		}
 
-		client := NewClient(s.requestHandler)
-		client.Link(con)
+		s.lastConnectionId++
+		connectionId := s.lastConnectionId
 
-		s.clients = append(s.clients, client)
+		client := NewConnection(s.requestHandler)
+		client.Link(con)
+		client.setCloseHandler(func() {
+			delete(s.connections, connectionId)
+		})
+
+		s.connections[connectionId] = client
 	}
 }

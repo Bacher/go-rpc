@@ -2,8 +2,8 @@ package main
 
 import (
 	"log"
-	"rpc/rpc"
 	"rpc/protocol"
+	"rpc/rpc"
 	"time"
 )
 
@@ -17,6 +17,8 @@ func main() {
 	}
 
 	defer client.Close()
+
+	time.Sleep(10 * time.Minute)
 
 	res, err := client.Request("kek", &pb.Params1{uint32(3), uint32(5)})
 

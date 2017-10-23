@@ -9,7 +9,7 @@ enum TYPE {
 }
 
 message Message {
-    uint64 id = 1;
+    uint32 id = 1;
     TYPE type = 2;
     oneof body {
         bool ping = 10;
@@ -24,7 +24,7 @@ message Request {
 }
 
 message Response {
-    uint64 for = 1;
+    uint32 for = 1;
     bool error = 2;
     bytes body = 3;
 }

@@ -1,11 +1,11 @@
 package main
 
 import (
-	"rpc/rpc"
-	"rpc/protocol"
+	"fmt"
 	"github.com/golang/protobuf/proto"
 	"log"
-	"fmt"
+	"rpc/protocol"
+	"rpc/rpc"
 )
 
 func main() {
