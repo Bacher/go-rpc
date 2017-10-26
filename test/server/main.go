@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"github.com/golang/protobuf/proto"
 	"log"
-	"rpc/protocol"
-	"rpc/rpc"
+	"gorpc/rpc"
 	"time"
+	"gorpc/protocol"
 )
 
 func main() {

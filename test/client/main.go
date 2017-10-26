@@ -2,8 +2,8 @@ package main
 
 import (
 	"log"
-	"rpc/protocol"
-	"rpc/rpc"
+	"gorpc/protocol"
+	"gorpc/rpc"
 	"time"
 )
 
