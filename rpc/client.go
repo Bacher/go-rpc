@@ -1,7 +1,6 @@
 package rpc
 
 import (
-	"github.com/golang/protobuf/proto"
 	"log"
 	"time"
 )
@@ -54,7 +53,7 @@ func (c *Client) Connect() error {
 	return nil
 }
 
-func (c *Client) Request(apiName string, params proto.Message) ([]byte, error) {
+func (c *Client) Request(apiName string, params []byte) ([]byte, error) {
 	if c.con == nil {
 		return nil, Closed
 	} else {

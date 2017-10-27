@@ -4,9 +4,9 @@ import (
 	"encoding/binary"
 	"errors"
 	"github.com/golang/protobuf/proto"
+	"gorpc/protocol"
 	"log"
 	"net"
-	"gorpc/protocol"
 	"sync"
 	"time"
 )
@@ -182,16 +182,16 @@ func (c *Connection) getNextMessageId() uint32 {
 	return id
 }
 
-func (c *Connection) Request(apiName string, params proto.Message) ([]byte, error) {
+func (c *Connection) Request(apiName string, params []byte) ([]byte, error) {
 	if !c.connected || c.closed || c.closing {
 		return nil, Closed
 	}
 
 	id := c.getNextMessageId()
 
-	paramsBuffer, _ := proto.Marshal(params)
+	//paramsBuffer, _ := proto.Marshal(params)
 
-	msg := &pb.Message{id, pb.TYPE_REQUEST, &pb.Message_Request{&pb.Request{apiName, paramsBuffer}}}
+	msg := &pb.Message{id, pb.TYPE_REQUEST, &pb.Message_Request{&pb.Request{apiName, params}}}
 	msgBuffer, err := proto.Marshal(msg)
 
 	if err != nil {
