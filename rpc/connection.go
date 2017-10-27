@@ -240,6 +240,10 @@ func (c *Connection) response(requestId uint32, request *pb.Request) {
 		resultBuffer, err = c.requestHandler(request.Name, request.Params)
 		elapsed := time.Since(startTs)
 
+		if err != nil {
+			log.Println("Request handler error:", err)
+		}
+
 		if elapsed > REQUEST_TIMEOUT {
 			log.Printf("[RPC] Request aborted. Too long response for \"%s\" [%ds]\n", request.Name, elapsed/time.Second)
 			return

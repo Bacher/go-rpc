@@ -5,7 +5,9 @@ import (
 	"net"
 )
 
-func NewServer(requestHandler RequestHandler) *Server {
+type ServerRequestHandler func(*Connection, string, []byte) ([]byte, error)
+
+func NewServer(requestHandler ServerRequestHandler) *Server {
 	return &Server{
 		nil,
 		0,
@@ -22,7 +24,7 @@ type Server struct {
 	server           net.Listener
 	lastConnectionId int
 	connections      map[int]*Connection
-	requestHandler   RequestHandler
+	requestHandler   ServerRequestHandler
 	openHandler      ConHandler
 	closeHandler     ConHandler
 }
@@ -52,7 +54,10 @@ func (s *Server) Serve() error {
 		s.lastConnectionId++
 		connectionId := s.lastConnectionId
 
-		client := NewConnection(s.requestHandler)
+		var client *Connection = nil
+		client = NewConnection(func(apiName string, params []byte) ([]byte, error) {
+			return s.requestHandler(client, apiName, params)
+		})
 		client.Link(con)
 		client.setCloseHandler(func() {
 			delete(s.connections, connectionId)
