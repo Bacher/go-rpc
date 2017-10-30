@@ -63,8 +63,8 @@ type Connection struct {
 	writeCh        chan []byte
 }
 
-func (c *Connection) Connect() error {
-	con, err := net.Dial("tcp", "localhost:9999")
+func (c *Connection) Connect(addr string) error {
+	con, err := net.Dial("tcp", addr)
 
 	if err != nil {
 		return err

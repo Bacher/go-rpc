@@ -5,11 +5,12 @@ import (
 	"time"
 )
 
-func NewClient(requestHandler RequestHandler) *Client {
-	return &Client{nil, requestHandler, true}
+func NewClient(addr string, requestHandler RequestHandler) *Client {
+	return &Client{addr, nil, requestHandler, true}
 }
 
 type Client struct {
+	addr             string
 	con              *Connection
 	requestHandler   RequestHandler
 	reconnectEnabled bool
@@ -18,7 +19,7 @@ type Client struct {
 func (c *Client) Connect() error {
 	c.con = NewConnection(c.requestHandler)
 
-	err := c.con.Connect()
+	err := c.con.Connect(c.addr)
 
 	if err != nil {
 		return err

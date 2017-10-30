@@ -7,8 +7,9 @@ import (
 
 type ServerRequestHandler func(*Connection, string, []byte) ([]byte, error)
 
-func NewServer(requestHandler ServerRequestHandler) *Server {
+func NewServer(addr string, requestHandler ServerRequestHandler) *Server {
 	return &Server{
+		addr,
 		nil,
 		0,
 		make(map[int]*Connection),
@@ -21,6 +22,7 @@ func NewServer(requestHandler ServerRequestHandler) *Server {
 type ConHandler func(*Connection)
 
 type Server struct {
+	addr             string
 	server           net.Listener
 	lastConnectionId int
 	connections      map[int]*Connection
@@ -30,7 +32,7 @@ type Server struct {
 }
 
 func (s *Server) Listen() error {
-	lis, err := net.Listen("tcp", "localhost:9999")
+	lis, err := net.Listen("tcp", s.addr)
 
 	if err != nil {
 		return err
