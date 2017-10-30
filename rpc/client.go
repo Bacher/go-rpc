@@ -6,12 +6,13 @@ import (
 )
 
 func NewClient(requestHandler RequestHandler) *Client {
-	return &Client{nil, requestHandler}
+	return &Client{nil, requestHandler, true}
 }
 
 type Client struct {
-	con            *Connection
-	requestHandler RequestHandler
+	con              *Connection
+	requestHandler   RequestHandler
+	reconnectEnabled bool
 }
 
 func (c *Client) Connect() error {
@@ -27,6 +28,10 @@ func (c *Client) Connect() error {
 		c.con = nil
 
 		go func() {
+			if !c.reconnectEnabled {
+				return
+			}
+
 			i := 0
 			for {
 				i++
@@ -39,6 +44,10 @@ func (c *Client) Connect() error {
 				}
 
 				time.Sleep(wait)
+
+				if !c.reconnectEnabled {
+					return
+				}
 
 				log.Println("Reconnecting...")
 				err := c.Connect()
@@ -65,4 +74,8 @@ func (c *Client) Close() {
 	if c.con != nil {
 		c.con.Close()
 	}
+}
+
+func (c *Client) ToggleAutoReconnect(enable bool) {
+	c.reconnectEnabled = enable
 }
