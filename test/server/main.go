@@ -3,14 +3,14 @@ package main
 import (
 	"fmt"
 	"github.com/golang/protobuf/proto"
-	"log"
-	"gorpc/rpc"
-	"time"
 	"gorpc/protocol"
+	"gorpc/rpc"
+	"log"
+	"time"
 )
 
 func main() {
-	server := rpc.NewServer(func(apiName string, body []byte) ([]byte, error) {
+	server := rpc.NewServer("127.0.0.1:9999", func(con *rpc.Connection, apiName string, body []byte) ([]byte, error) {
 		switch apiName {
 		case "kek":
 			var p pb.Params1
@@ -26,7 +26,13 @@ func main() {
 		return nil, rpc.ApiNotFound
 	})
 
-	server.Listen()
+	if err := server.Listen(); err != nil {
+		log.Println("Error")
+	}
+
+	if err := server.Serve(); err != nil {
+
+	}
 }
 
 func method1(params1 pb.Params1) *pb.Result1 {

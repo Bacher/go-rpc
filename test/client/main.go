@@ -1,14 +1,18 @@
 package main
 
 import (
-	"log"
+	"github.com/golang/protobuf/proto"
 	"gorpc/protocol"
 	"gorpc/rpc"
+	"log"
 	"time"
 )
 
 func main() {
-	client := rpc.NewClient(nil)
+	client := rpc.NewClient("127.0.0.1:9999", func(apiName string, data []byte) ([]byte, error) {
+		log.Fatalln("Kek")
+		return nil, nil
+	})
 
 	err := client.Connect()
 
@@ -22,7 +26,13 @@ func main() {
 		go func() {
 			log.Println("Request!")
 
-			res, err := client.Request("kek", &pb.Params1{uint32(3), uint32(5)})
+			buf, err := proto.Marshal(&pb.Params1{uint32(3), uint32(5)})
+
+			if err != nil {
+				log.Fatalln("Marshal failed:", err)
+			}
+
+			res, err := client.Request("kek", buf)
 
 			if err != nil {
 				log.Println("[TEST] Request failed!", err)
